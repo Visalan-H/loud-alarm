@@ -20,16 +20,39 @@ import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
+/** Near-black, off-white, one ember accent. Nothing else competes for attention. */
 internal object Palette {
-    const val BG = 0xFF0E0E10.toInt()
-    const val SURFACE = 0xFF1C1C21.toInt()
-    const val SURFACE_HIGH = 0xFF2A2A31.toInt()
-    const val TEXT = 0xFFF2F2F2.toInt()
-    const val MUTED = 0xFF8A8A93.toInt()
-    const val ACCENT = 0xFFFF5A36.toInt()
-    const val GOOD = 0xFF4CD07D.toInt()
-    const val WARN = 0xFFFFB648.toInt()
+    const val BG = 0xFF0A0A0A.toInt()
+    const val SURFACE = 0xFF141414.toInt()
+    const val SURFACE_HIGH = 0xFF242424.toInt()
+    const val TEXT = 0xFFEDEAE4.toInt()
+    const val MUTED = 0xFF77746F.toInt()
+    const val ACCENT = 0xFFFF4D1A.toInt()
+    const val GOOD = 0xFFEDEAE4.toInt()
+    const val WARN = 0xFFFF4D1A.toInt()
 }
+
+internal object Type {
+    /** Bold condensed sans for times and headlines. */
+    val DISPLAY: Typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
+    val BODY: Typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+    val MEDIUM: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+}
+
+/** Big condensed headline text. */
+internal fun Context.display(text: CharSequence, sizeSp: Float, color: Int = Palette.TEXT) =
+    label(text, sizeSp, color).apply {
+        typeface = Type.DISPLAY
+        letterSpacing = -0.01f
+        includeFontPadding = false
+    }
+
+/** Small uppercase, widely tracked label used above sections. */
+internal fun Context.eyebrow(text: String, color: Int = Palette.MUTED) =
+    label(text.uppercase(), 12f, color).apply {
+        typeface = Type.MEDIUM
+        letterSpacing = 0.18f
+    }
 
 internal fun Context.dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
 
@@ -56,11 +79,13 @@ internal fun Context.rounded(color: Int, radiusDp: Int = 14, strokeColor: Int? =
 internal fun Context.button(text: String, filled: Boolean = true, onClick: () -> Unit) =
     TextView(this).apply {
         this.text = text
-        textSize = 17f
-        typeface = Typeface.DEFAULT_BOLD
+        textSize = 15f
+        typeface = Type.MEDIUM
+        letterSpacing = 0.08f
+        isAllCaps = true
         gravity = Gravity.CENTER
         setTextColor(if (filled) Palette.BG else Palette.TEXT)
-        val shape = if (filled) rounded(Palette.ACCENT) else rounded(Palette.SURFACE, strokeColor = Palette.SURFACE_HIGH)
+        val shape = if (filled) rounded(Palette.ACCENT, 6) else rounded(Palette.BG, 6, strokeColor = Palette.SURFACE_HIGH)
         background = RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), shape, null)
         setPadding(dp(16), dp(14), dp(16), dp(14))
         isClickable = true
@@ -69,7 +94,7 @@ internal fun Context.button(text: String, filled: Boolean = true, onClick: () ->
 
 internal fun Context.card() = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
-    background = rounded(Palette.SURFACE, 18)
+    background = rounded(Palette.SURFACE, 8)
     setPadding(dp(18), dp(16), dp(18), dp(16))
 }
 

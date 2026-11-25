@@ -19,6 +19,7 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.Switch
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.format.TextStyle
 import java.util.Locale
@@ -32,7 +33,7 @@ class MainActivity : Activity() {
         store = AlarmStore(this)
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(28))
+            setPadding(dp(24), dp(28), dp(24), dp(32))
         }
         setContentView(ScrollView(this).apply {
             setBackgroundColor(Palette.BG)
@@ -64,35 +65,58 @@ class MainActivity : Activity() {
 
     private fun render() {
         content.removeAllViews()
-        content.addView(label("Loud Alarm", 30f, bold = true))
-        content.addView(label(nextRingSummary(), 15f, Palette.MUTED), lp(top = 2, bottom = 20))
+
+        heroBlock()
+        streakBlock()
 
         setupIssues().forEach { (text, fix) -> content.addView(issueRow(text, fix), lp(bottom = 12)) }
 
+        content.addView(eyebrow("Alarms"), lp(top = 16, bottom = 10))
         store.alarms().sortedBy { it.hour * 60 + it.minute }.forEach {
             content.addView(alarmCard(it), lp(bottom = 12))
         }
-
-        content.addView(button("+ Add alarm") {
+        content.addView(button("+ Add alarm", filled = false) {
             pickTime(7, 0) { h, m -> save(Alarm(store.nextId(), h, m)) }
-        }, lp(top = 4, bottom = 28))
+        }, lp(top = 4, bottom = 32))
 
-        content.addView(label("Settings", 13f, Palette.MUTED, bold = true), lp(bottom = 8))
-        content.addView(settingsCard(), lp(bottom = 12))
+        content.addView(eyebrow("Settings"), lp(bottom = 10))
+        content.addView(settingsCard(), lp(bottom = 16))
 
-        content.addView(button("Test: ring in 10 seconds", filled = false) {
+        content.addView(button("Test ring in 10 s", filled = false) {
             if (Scheduler.test(this, 10_000L)) toast("Lock your phone. It rings in 10 seconds.")
             else toast("Allow exact alarms first.")
         })
     }
 
-    private fun nextRingSummary(): String {
+    private fun heroBlock() {
+        content.addView(eyebrow("Next"))
         val now = ZonedDateTime.now()
-        val nowMs = now.toInstant().toEpochMilli()
         val next = (store.alarms().filter { it.enabled }.map { it.nextTrigger(now).toInstant().toEpochMilli() } +
             listOfNotNull(store.snooze?.at)).minOrNull()
-            ?: return "No alarms set"
-        return "Next alarm in ${untilText(next - nowMs)}"
+        if (next == null) {
+            content.addView(display("No alarm.", 56f), lp(top = 6))
+            content.addView(label("Set the time you'll get up.", 16f, Palette.MUTED), lp(top = 6, bottom = 32))
+            return
+        }
+        val at = ZonedDateTime.ofInstant(Instant.ofEpochMilli(next), now.zone)
+        val day = when (at.toLocalDate()) {
+            now.toLocalDate() -> "Today"
+            now.toLocalDate().plusDays(1) -> "Tomorrow"
+            else -> at.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
+        }
+        content.addView(display(formatTime(at.hour, at.minute), 56f), lp(top = 6))
+        content.addView(
+            label("$day · in ${untilText(next - now.toInstant().toEpochMilli())}", 16f, Palette.MUTED),
+            lp(top = 6, bottom = 32),
+        )
+    }
+
+    private fun streakBlock() {
+        val count = store.streak.count
+        content.addView(eyebrow("Streak"))
+        // A big grey zero reads as failure before you've even started; show the number once it exists.
+        if (count > 0) content.addView(display(count.toString(), 40f), lp(top = 6))
+        content.addView(label(Lines.streakLine(count), 15f, Palette.MUTED), lp(top = if (count > 0) 4 else 8, bottom = 28))
     }
 
     private fun alarmCard(alarm: Alarm): View = card().apply {
@@ -100,7 +124,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val time = label(formatTime(alarm.hour, alarm.minute), 42f, if (alarm.enabled) Palette.TEXT else Palette.MUTED, bold = true)
+        val time = display(formatTime(alarm.hour, alarm.minute), 36f,if (alarm.enabled) Palette.TEXT else Palette.MUTED)
         time.setOnClickListener {
             pickTime(alarm.hour, alarm.minute) { h, m -> save(alarm.copy(hour = h, minute = m, enabled = true)) }
         }
@@ -112,25 +136,26 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> save(alarm.copy(enabled = on)) }
         })
         addView(top)
-        addView(label(Days.describe(alarm.days), 14f, Palette.MUTED))
+        addView(label(Days.describe(alarm.days), 14f, Palette.MUTED), lp(top = 4))
 
         val days = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
         for (day in DayOfWeek.entries) {
             val on = alarm.repeatsOn(day)
             val chip = label(day.getDisplayName(TextStyle.NARROW, Locale.getDefault()), 14f,
-                if (on) Palette.BG else Palette.MUTED, bold = true).apply {
+                if (on) Palette.BG else Palette.MUTED).apply {
+                typeface = Type.MEDIUM
                 gravity = Gravity.CENTER
-                background = rounded(if (on) Palette.ACCENT else Palette.SURFACE_HIGH, 20)
-                setPadding(0, dp(8), 0, dp(8))
+                background = rounded(if (on) Palette.ACCENT else Palette.SURFACE_HIGH, 6)
+                setPadding(0, dp(9), 0, dp(9))
                 setOnClickListener { save(alarm.copy(days = alarm.days xor day.bit, enabled = true)) }
             }
             days.addView(chip, lp(width = 0, weight = 1f).apply { marginStart = dp(3); marginEnd = dp(3) })
         }
-        addView(days, lp(top = 12))
+        addView(days, lp(top = 14))
 
-        addView(label("Delete", 14f, Palette.MUTED).apply {
+        addView(eyebrow("Delete").apply {
             gravity = Gravity.END
-            setPadding(0, dp(12), 0, 0)
+            setPadding(0, dp(14), 0, dp(2))
             setOnClickListener {
                 Scheduler.cancel(context, alarm.id)
                 store.delete(alarm.id)
@@ -140,38 +165,42 @@ class MainActivity : Activity() {
     }
 
     private fun settingsCard(): View = card().apply {
-        val volumeLabel = label("", 15f)
+        addView(eyebrow("Loudness"))
+        val volumeValue = display("", 28f)
         fun showVolume(p: Int) {
-            volumeLabel.text = "Loudness: $p%"
+            volumeValue.text = "$p%"
         }
         showVolume(store.volumePercent)
-        addView(volumeLabel)
-        addView(label("Share of your phone's max alarm volume. Locked in while it rings.", 13f, Palette.MUTED))
+        addView(volumeValue, lp(top = 4))
+        addView(label("Share of your phone's max alarm volume. Locked in while it rings.", 13f, Palette.MUTED), lp(top = 4))
         addView(SeekBar(context).apply {
             min = 10
             max = 100
             progress = store.volumePercent
             onChange { store.volumePercent = it; showVolume(it) }
-        }, lp(top = 8, bottom = 20))
+        }, lp(top = 10, bottom = 24))
 
-        val snoozeLabel = label("", 15f)
+        addView(eyebrow("Snooze"))
+        val snoozeValue = display("", 28f)
         fun showSnooze(m: Int) {
-            snoozeLabel.text = "Snooze length: $m min"
+            snoozeValue.text = "$m min"
         }
         showSnooze(store.snoozeMinutes)
-        addView(snoozeLabel)
+        addView(snoozeValue, lp(top = 4))
+        addView(label("Snoozing resets your streak.", 13f, Palette.MUTED), lp(top = 4))
         addView(SeekBar(context).apply {
             min = 1
             max = 30
             progress = store.snoozeMinutes
             onChange { store.snoozeMinutes = it; showSnooze(it) }
-        }, lp(top = 8))
+        }, lp(top = 10))
     }
 
     private fun issueRow(text: String, fix: () -> Unit): View = card().apply {
-        background = rounded(Palette.SURFACE, 18, strokeColor = Palette.WARN)
-        addView(label(text, 14f))
-        addView(button("Fix", filled = false, onClick = fix), lp(top = 10))
+        background = rounded(Palette.SURFACE, 8, strokeColor = Palette.ACCENT)
+        addView(eyebrow("Fix this", Palette.ACCENT))
+        addView(label(text, 15f), lp(top = 6))
+        addView(button("Fix", filled = false, onClick = fix), lp(top = 12))
     }
 
     private fun setupIssues(): List<Pair<String, () -> Unit>> = buildList {

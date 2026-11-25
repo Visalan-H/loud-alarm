@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#0E0E10</color>
-    <color name="accent">#FF5A36</color>
+    <color name="bg">#0A0A0A</color>
+    <color name="accent">#FF4D1A</color>
 
     <style name="Theme.LoudAlarm" parent="android:Theme.Material.NoActionBar">
         <item name="android:colorAccent">@color/accent</item>
