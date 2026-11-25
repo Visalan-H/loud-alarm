@@ -33,8 +33,8 @@ internal object Palette {
 }
 
 internal object Type {
-    /** Bold condensed sans for times and headlines. */
-    val DISPLAY: Typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
+    /** Medium-weight sans for times and the problem. */
+    val DISPLAY: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     val BODY: Typeface = Typeface.create("sans-serif", Typeface.NORMAL)
     val MEDIUM: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
 }
@@ -43,7 +43,7 @@ internal object Type {
 internal fun Context.display(text: CharSequence, sizeSp: Float, color: Int = Palette.TEXT) =
     label(text, sizeSp, color).apply {
         typeface = Type.DISPLAY
-        letterSpacing = -0.01f
+        letterSpacing = -0.02f
         includeFontPadding = false
     }
 
@@ -79,13 +79,11 @@ internal fun Context.rounded(color: Int, radiusDp: Int = 14, strokeColor: Int? =
 internal fun Context.button(text: String, filled: Boolean = true, onClick: () -> Unit) =
     TextView(this).apply {
         this.text = text
-        textSize = 15f
+        textSize = 16f
         typeface = Type.MEDIUM
-        letterSpacing = 0.08f
-        isAllCaps = true
         gravity = Gravity.CENTER
         setTextColor(if (filled) Palette.BG else Palette.TEXT)
-        val shape = if (filled) rounded(Palette.ACCENT, 6) else rounded(Palette.BG, 6, strokeColor = Palette.SURFACE_HIGH)
+        val shape = if (filled) rounded(Palette.ACCENT, 10) else rounded(Palette.SURFACE, 10, strokeColor = Palette.SURFACE_HIGH)
         background = RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), shape, null)
         setPadding(dp(16), dp(14), dp(16), dp(14))
         isClickable = true

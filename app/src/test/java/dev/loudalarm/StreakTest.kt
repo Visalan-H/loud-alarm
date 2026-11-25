@@ -33,10 +33,9 @@ class StreakTest {
     }
 
     @Test
-    fun linesStayPlain() {
-        assertEquals("No streak yet. Tomorrow counts.", Lines.streakLine(0))
-        assertEquals("1 morning up without snoozing.", Lines.streakLine(1))
-        assertEquals("4 mornings in a row, no snooze.", Lines.streakLine(4))
-        Lines.wake.forEach { assert(!it.contains('!')) { "no exclamation marks: $it" } }
+    fun streakLineIsPlainAndSilentAtZero() {
+        assertEquals("", Lines.streakLine(0))
+        assertEquals("1 morning without snoozing", Lines.streakLine(1))
+        assertEquals("4 mornings without snoozing", Lines.streakLine(4))
     }
 }

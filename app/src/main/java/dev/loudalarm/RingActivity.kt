@@ -4,11 +4,15 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.graphics.drawable.ClipDrawable
+import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -16,10 +20,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
-import java.time.LocalDate
 import java.time.LocalTime
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 /**
  * The screen that shows over the lock screen while the alarm rings. Snooze and dismiss stay hidden
@@ -35,13 +36,10 @@ class RingActivity : Activity() {
     private var entry = ""
     private var lastWrong = false
 
-    private lateinit var dateView: TextView
     private lateinit var clockView: TextView
     private lateinit var statusView: TextView
     private lateinit var segments: List<View>
     private lateinit var problemView: TextView
-    private lateinit var entryView: TextView
-    private lateinit var streakView: TextView
     private lateinit var keypad: LinearLayout
     private lateinit var actions: LinearLayout
     private lateinit var emergency: TextView
@@ -57,7 +55,6 @@ class RingActivity : Activity() {
             resetIfNewRing()
             val now = LocalTime.now()
             clockView.text = formatTime(now.hour, now.minute)
-            dateView.text = todayText()
             handler.postDelayed(this, 1000)
         }
     }
@@ -134,28 +131,24 @@ class RingActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
-    private fun todayText(): String =
-        LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, d MMMM", Locale.getDefault())).uppercase()
-
     private fun buildLayout(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.START
             setBackgroundColor(Palette.BG)
-            setPadding(dp(24), dp(28), dp(24), dp(20))
+            setPadding(dp(24), dp(28), dp(24), dp(16))
             padForSystemBars()
         }
 
-        dateView = eyebrow(todayText())
         clockView = display("", 88f)
-        val line = label(Lines.forDay(), 20f).apply { typeface = Type.BODY }
-        root.addView(dateView, lp())
-        root.addView(clockView, lp(top = 4))
-        root.addView(line, lp(top = 8))
+        statusView = label("", 17f, Palette.MUTED).apply { typeface = Type.BODY }
+        root.addView(clockView, lp())
+        root.addView(statusView, lp(top = 6))
         root.addView(View(this), lp(height = 0, weight = 1f))
 
-        statusView = eyebrow("")
-        root.addView(statusView, lp())
+        problemView = display("", 52f).apply { maxLines = 1 }
+        root.addView(problemView, lp())
+
         val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         segments = List(Problem.REQUIRED) { i ->
             View(this).also {
@@ -164,15 +157,7 @@ class RingActivity : Activity() {
                 })
             }
         }
-        root.addView(bar, lp(top = 10))
-
-        problemView = display("", 52f)
-        entryView = display("", 52f, Palette.ACCENT).apply { minHeight = dp(60) }
-        streakView = label("", 15f, Palette.MUTED).apply { typeface = Type.BODY }
-        root.addView(problemView, lp(top = 20))
-        root.addView(entryView, lp(top = 2))
-        root.addView(streakView, lp(top = 4))
-        root.addView(View(this), lp(height = 0, weight = 1f))
+        root.addView(bar, lp(top = 10, bottom = 18))
 
         keypad = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         listOf(
@@ -180,42 +165,60 @@ class RingActivity : Activity() {
             listOf("4", "5", "6"),
             listOf("7", "8", "9"),
             listOf(DELETE, "0", SUBMIT),
-        ).forEach { row ->
-            // Baseline alignment would push the small-text DEL/OK keys below the digits and clip them.
+        ).forEachIndexed { r, row ->
+            // Baseline alignment would push the small-text keys below the digits and clip them.
             val keys = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 isBaselineAligned = false
             }
             row.forEachIndexed { i, key ->
-                val view = button(key, filled = key == SUBMIT) { press(key) }.apply {
-                    if (key != DELETE && key != SUBMIT) {
-                        textSize = 26f
-                        letterSpacing = 0f
-                        typeface = Type.DISPLAY
-                    }
-                }
-                keys.addView(view, lp(width = 0, height = dp(68), weight = 1f).apply {
+                keys.addView(key(key), lp(width = 0, height = dp(68), weight = 1f).apply {
                     if (i > 0) marginStart = dp(8)
                 })
             }
-            keypad.addView(keys, lp(bottom = 8))
+            keypad.addView(keys, lp(top = if (r > 0) 8 else 0))
         }
         root.addView(keypad, lp())
         emergency = emergencyButton()
-        root.addView(emergency, lp(top = 4, height = dp(48)))
+        root.addView(emergency, lp(top = 12, height = dp(52)))
 
         actions = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        actions.addView(button("Turn off") { dismiss() }, lp(bottom = 12, height = dp(64)))
-        actions.addView(button("Snooze ${store.snoozeMinutes} min", filled = false) { snooze() }, lp(height = dp(64)))
-        actions.addView(label("Snoozing resets your streak.", 13f, Palette.MUTED).apply {
-            typeface = Type.BODY
-            gravity = Gravity.CENTER
-        }, lp(top = 8))
+        actions.addView(button("Turn off") { dismiss() }, lp(height = dp(64)))
+        actions.addView(button("Snooze ${store.snoozeMinutes} min", filled = false) { snooze() }, lp(top = 10, height = dp(64)))
         root.addView(actions, lp())
         return root
     }
 
+    private fun key(key: String): TextView = label(key, 28f).apply {
+        gravity = Gravity.CENTER
+        isClickable = true
+        when (key) {
+            SUBMIT -> {
+                textSize = 16f
+                typeface = Type.MEDIUM
+                setTextColor(Palette.BG)
+                background = rounded(Palette.ACCENT, 10)
+            }
+            DELETE -> {
+                typeface = Type.BODY
+                background = keyShape()
+            }
+            else -> {
+                typeface = Type.DISPLAY
+                background = keyShape()
+            }
+        }
+        setOnClickListener { press(key) }
+    }
+
+    private fun keyShape() = GradientDrawable().apply {
+        setColor(Palette.SURFACE)
+        cornerRadius = dp(10).toFloat()
+        setStroke(dp(1), Palette.SURFACE_HIGH)
+    }
+
     private fun press(key: String) {
+        lastWrong = false
         when (key) {
             DELETE -> entry = entry.dropLast(1)
             SUBMIT -> check()
@@ -237,28 +240,16 @@ class RingActivity : Activity() {
     private fun render() {
         val done = solved >= Problem.REQUIRED
         val wrong = lastWrong && !done
-        statusView.text = when {
-            done -> "AWAKE"
-            wrong -> "WRONG. AGAIN."
-            else -> "PROVE YOU'RE AWAKE"
-        }
+        statusView.text = if (wrong) "Wrong, try again" else "Solve ${Problem.REQUIRED} to turn it off"
         statusView.setTextColor(if (wrong) Palette.ACCENT else Palette.MUTED)
         segments.forEachIndexed { i, view ->
             view.background = rounded(if (i < solved) Palette.ACCENT else Palette.SURFACE_HIGH, 2)
         }
 
-        if (done) {
-            problemView.text = "You're up."
-            entryView.visibility = View.GONE
-            streakView.visibility = View.VISIBLE
-            val next = store.streak.after(!store.snoozedToday, LocalDate.now()).count
-            streakView.text = if (isTest) "Test alarm. Your streak is untouched." else Lines.streakLine(next)
-        } else {
-            problemView.text = problem.toString()
-            entryView.visibility = View.VISIBLE
-            entryView.text = entry.ifEmpty { "_" }
-            entryView.setTextColor(if (entry.isEmpty()) Palette.SURFACE_HIGH else Palette.ACCENT)
-            streakView.visibility = View.GONE
+        problemView.text = if (done) "You're up." else SpannableStringBuilder("$problem = ").apply {
+            val start = length
+            append(entry.ifEmpty { "_" })
+            setSpan(ForegroundColorSpan(Palette.ACCENT), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         keypad.visibility = if (done) View.GONE else View.VISIBLE
         emergency.visibility = if (done) View.GONE else View.VISIBLE
@@ -271,16 +262,17 @@ class RingActivity : Activity() {
      */
     @SuppressLint("ClickableViewAccessibility")
     private fun emergencyButton(): TextView {
-        val fill = ClipDrawable(rounded(Palette.ACCENT, 6), Gravity.START, ClipDrawable.HORIZONTAL)
+        val fill = ClipDrawable(rounded(EMBER_FILL, 10), Gravity.START, ClipDrawable.HORIZONTAL)
         val seconds = EMERGENCY_HOLD_MS / 1000
-        val view = eyebrow("").apply {
+        val view = label("", 15f, Palette.MUTED).apply {
+            typeface = Type.BODY
             gravity = Gravity.CENTER
-            background = LayerDrawable(arrayOf(rounded(Palette.SURFACE, 6), fill))
+            background = LayerDrawable(arrayOf(rounded(Palette.SURFACE, 10), fill))
         }
         var pressedAt = 0L
         fun idle() {
             fill.level = 0
-            view.text = "HOLD $seconds S TO STOP WITHOUT SOLVING"
+            view.text = "Hold $seconds s to stop without solving"
             view.setTextColor(Palette.MUTED)
         }
         val progress = object : Runnable {
@@ -291,7 +283,7 @@ class RingActivity : Activity() {
                     return
                 }
                 fill.level = (held * 10_000 / EMERGENCY_HOLD_MS).toInt()
-                view.text = "KEEP HOLDING · ${(EMERGENCY_HOLD_MS - held + 999) / 1000}"
+                view.text = "Keep holding Ãƒâ€šÃ‚Â· ${(EMERGENCY_HOLD_MS - held + 999) / 1000}"
                 view.setTextColor(Palette.TEXT)
                 handler.postDelayed(this, 50)
             }
@@ -330,7 +322,10 @@ class RingActivity : Activity() {
     private fun dismiss() {
         val test = isTest
         AlarmService.stop(this)
-        if (!test) toast(Lines.streakLine(store.recordWake(clean = true).count))
+        if (!test) {
+            val line = Lines.streakLine(store.recordWake(clean = true).count)
+            if (line.isNotEmpty()) toast(line)
+        }
         finish()
     }
 
@@ -339,7 +334,7 @@ class RingActivity : Activity() {
         AlarmService.stop(this)
         if (!test) {
             store.recordWake(clean = false)
-            toast("Streak reset. Tomorrow counts.")
+            toast("Streak reset")
         }
         finish()
     }
@@ -347,8 +342,9 @@ class RingActivity : Activity() {
     private companion object {
         const val KEY_SOLVED = "solved"
         const val KEY_SINCE = "ring_since"
-        const val DELETE = "Del"
+        const val DELETE = "ÃƒÂ¢Ã…â€™Ã‚Â«"
         const val SUBMIT = "OK"
         const val EMERGENCY_HOLD_MS = 5_000L
+        const val EMBER_FILL = 0xFF3A1A10.toInt()
     }
 }
