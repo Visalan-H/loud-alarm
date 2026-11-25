@@ -283,7 +283,7 @@ class RingActivity : Activity() {
                     return
                 }
                 fill.level = (held * 10_000 / EMERGENCY_HOLD_MS).toInt()
-                view.text = "Keep holding Ãƒâ€šÃ‚Â· ${(EMERGENCY_HOLD_MS - held + 999) / 1000}"
+                view.text = "Keep holding · ${(EMERGENCY_HOLD_MS - held + 999) / 1000}"
                 view.setTextColor(Palette.TEXT)
                 handler.postDelayed(this, 50)
             }
@@ -342,7 +342,7 @@ class RingActivity : Activity() {
     private companion object {
         const val KEY_SOLVED = "solved"
         const val KEY_SINCE = "ring_since"
-        const val DELETE = "ÃƒÂ¢Ã…â€™Ã‚Â«"
+        const val DELETE = "⌫"
         const val SUBMIT = "OK"
         const val EMERGENCY_HOLD_MS = 5_000L
         const val EMBER_FILL = 0xFF3A1A10.toInt()
