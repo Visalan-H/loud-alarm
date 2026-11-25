@@ -28,8 +28,6 @@ internal object Palette {
     const val TEXT = 0xFFEDEAE4.toInt()
     const val MUTED = 0xFF77746F.toInt()
     const val ACCENT = 0xFFFF4D1A.toInt()
-    const val GOOD = 0xFFEDEAE4.toInt()
-    const val WARN = 0xFFFF4D1A.toInt()
 }
 
 internal object Type {
@@ -39,19 +37,12 @@ internal object Type {
     val MEDIUM: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
 }
 
-/** Big condensed headline text. */
+/** Large medium-weight text for times and the problem. */
 internal fun Context.display(text: CharSequence, sizeSp: Float, color: Int = Palette.TEXT) =
     label(text, sizeSp, color).apply {
         typeface = Type.DISPLAY
         letterSpacing = -0.02f
         includeFontPadding = false
-    }
-
-/** Small uppercase, widely tracked label used above sections. */
-internal fun Context.eyebrow(text: String, color: Int = Palette.MUTED) =
-    label(text.uppercase(), 12f, color).apply {
-        typeface = Type.MEDIUM
-        letterSpacing = 0.18f
     }
 
 internal fun Context.dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
@@ -89,12 +80,6 @@ internal fun Context.button(text: String, filled: Boolean = true, onClick: () ->
         isClickable = true
         setOnClickListener { onClick() }
     }
-
-internal fun Context.card() = LinearLayout(this).apply {
-    orientation = LinearLayout.VERTICAL
-    background = rounded(Palette.SURFACE, 8)
-    setPadding(dp(18), dp(16), dp(18), dp(16))
-}
 
 internal fun Context.lp(
     top: Int = 0,
