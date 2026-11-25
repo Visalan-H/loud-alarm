@@ -11,3 +11,18 @@ build/
 *.dll
 *.zip
 *.iso
+
+# Android / Gradle
+.gradle/
+.kotlin/
+local.properties
+.idea/
+*.iml
+*.apk
+
+
+# Local AI tooling
+.claude/
+CLAUDE.md
+AGENTS.md
+
