@@ -1,4 +1,4 @@
-package dev.loudalarm
+﻿package dev.loudalarm
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -63,8 +63,8 @@ class AlarmTest {
     fun describesDays() {
         assertEquals("Once", Days.describe(0))
         assertEquals("Every day", Days.describe(Days.EVERY_DAY))
-        assertEquals("Weekdays", Days.describe(Days.WEEKDAYS))
-        assertEquals("Weekends", Days.describe(Days.WEEKENDS))
+        assertEquals("Mon–Fri", Days.describe(Days.WEEKDAYS))
+        assertEquals("Sat, Sun", Days.describe(Days.WEEKENDS))
         assertEquals("Mon, Wed", Days.describe(DayOfWeek.MONDAY.bit or DayOfWeek.WEDNESDAY.bit, Locale.US))
     }
 }

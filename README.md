@@ -2,6 +2,8 @@
 
 An Android alarm clock that won't shut up until you solve three addition problems. Snooze and turn-off both stay locked until you finish.
 
+For real emergencies, holding the stop bar for 5 seconds turns it off without the math. That costs you your streak, the count of mornings you got up without snoozing. Loudness starts at 50% and goes from 10% to 100%.
+
 It runs entirely on the phone. There's no server, no account, and no internet permission. The only code in the APK is this app plus the Kotlin standard library.
 
 ## How it stays reliable

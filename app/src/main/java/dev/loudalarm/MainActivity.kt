@@ -2,6 +2,7 @@ package dev.loudalarm
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.NotificationManager
 import android.app.TimePickerDialog
 import android.content.Intent
@@ -9,6 +10,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.text.format.DateFormat
@@ -18,7 +21,9 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.Switch
+import android.widget.TextView
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.format.TextStyle
 import java.util.Locale
@@ -26,17 +31,26 @@ import java.util.Locale
 class MainActivity : Activity() {
     private lateinit var store: AlarmStore
     private lateinit var content: LinearLayout
+    private val handler = Handler(Looper.getMainLooper())
+
+    private var lastDeleted: Alarm? = null
+    private val clearUndo = Runnable {
+        lastDeleted = null
+        render()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = AlarmStore(this)
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(28))
+            setPadding(dp(22), dp(40), dp(22), dp(16))
         }
         setContentView(ScrollView(this).apply {
             setBackgroundColor(Palette.BG)
-            addView(content)
+            // Fill the viewport so the settings can sit at the bottom instead of floating mid-screen.
+            isFillViewport = true
+            addView(content, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
             padForSystemBars()
         })
 
@@ -58,120 +72,222 @@ class MainActivity : Activity() {
         render()
     }
 
+    override fun onDestroy() {
+        handler.removeCallbacks(clearUndo)
+        super.onDestroy()
+    }
+
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         render()
     }
 
     private fun render() {
         content.removeAllViews()
-        content.addView(label("Loud Alarm", 30f, bold = true))
-        content.addView(label(nextRingSummary(), 15f, Palette.MUTED), lp(top = 2, bottom = 20))
+        header()
 
-        setupIssues().forEach { (text, fix) -> content.addView(issueRow(text, fix), lp(bottom = 12)) }
+        setupIssues().forEach { (text, fix) -> content.addView(issueRow(text, fix), lp(bottom = 10)) }
 
-        store.alarms().sortedBy { it.hour * 60 + it.minute }.forEach {
-            content.addView(alarmCard(it), lp(bottom = 12))
+        lastDeleted?.let { content.addView(undoBar(it), lp(top = 8)) }
+
+        val alarms = store.alarms().sortedBy { it.hour * 60 + it.minute }
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        if (alarms.isNotEmpty()) list.addView(divider())
+        alarms.forEach {
+            list.addView(alarmRow(it))
+            list.addView(divider())
         }
+        content.addView(list, lp(top = 28))
 
-        content.addView(button("+ Add alarm") {
-            pickTime(7, 0) { h, m -> save(Alarm(store.nextId(), h, m)) }
-        }, lp(top = 4, bottom = 28))
+        content.addView(label("+ Add alarm", 18f, Palette.ACCENT).apply {
+            typeface = Type.MEDIUM
+            setPadding(0, dp(14), 0, dp(14))
+            setOnClickListener { pickTime(7, 0) { h, m -> save(Alarm(store.nextId(), h, m)) } }
+        }, lp(top = 4))
 
-        content.addView(label("Settings", 13f, Palette.MUTED, bold = true), lp(bottom = 8))
-        content.addView(settingsCard(), lp(bottom = 12))
+        content.addView(View(this), lp(height = 0, weight = 1f))
 
-        content.addView(button("Test: ring in 10 seconds", filled = false) {
+        val settings = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        settings.addView(divider())
+        settings.addView(settingRow("Loudness", "${store.volumePercent}%") { loudnessDialog() })
+        settings.addView(divider())
+        settings.addView(settingRow("Snooze", "${store.snoozeMinutes} min") { snoozeDialog() })
+        settings.addView(divider())
+        settings.addView(settingRow("Test alarm", "Rings in 10 s") {
             if (Scheduler.test(this, 10_000L)) toast("Lock your phone. It rings in 10 seconds.")
             else toast("Allow exact alarms first.")
         })
+        content.addView(settings, lp(top = 24))
     }
 
-    private fun nextRingSummary(): String {
+    private fun header() {
         val now = ZonedDateTime.now()
-        val nowMs = now.toInstant().toEpochMilli()
         val next = (store.alarms().filter { it.enabled }.map { it.nextTrigger(now).toInstant().toEpochMilli() } +
             listOfNotNull(store.snooze?.at)).minOrNull()
-            ?: return "No alarms set"
-        return "Next alarm in ${untilText(next - nowMs)}"
+        if (next == null) {
+            content.addView(label("Next alarm", 17f, Palette.MUTED))
+            content.addView(display("None", 84f, Palette.SURFACE_HIGH), lp(top = 4))
+        } else {
+            val at = ZonedDateTime.ofInstant(Instant.ofEpochMilli(next), now.zone)
+            content.addView(label("Next alarm in ${untilText(next - now.toInstant().toEpochMilli())}", 17f, Palette.MUTED))
+            content.addView(display(formatTime(at.hour, at.minute), 84f), lp(top = 4))
+        }
+        val streak = Lines.streakLine(store.streak.count)
+        if (streak.isNotEmpty()) content.addView(label(streak, 16f, Palette.MUTED), lp(top = 8))
+        content.addView(View(this), lp(height = dp(24)))
     }
 
-    private fun alarmCard(alarm: Alarm): View = card().apply {
-        val top = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val time = label(formatTime(alarm.hour, alarm.minute), 42f, if (alarm.enabled) Palette.TEXT else Palette.MUTED, bold = true)
-        time.setOnClickListener {
-            pickTime(alarm.hour, alarm.minute) { h, m -> save(alarm.copy(hour = h, minute = m, enabled = true)) }
-        }
-        top.addView(time, lp(width = 0, weight = 1f))
-        top.addView(Switch(context).apply {
+    private fun divider() = View(this).apply {
+        setBackgroundColor(0xFF1F1F1F.toInt())
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
+    }
+
+    private fun alarmRow(alarm: Alarm): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(0, dp(18), 0, dp(18))
+        isClickable = true
+        setOnClickListener { editDialog(alarm) }
+
+        val left = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        left.addView(display(formatTime(alarm.hour, alarm.minute), 42f, if (alarm.enabled) Palette.TEXT else Palette.MUTED))
+        left.addView(label("${Days.describe(alarm.days)}  ·  Edit", 15f, Palette.MUTED), lp(top = 4))
+        addView(left, lp(width = 0, weight = 1f))
+
+        addView(Switch(context).apply {
+            scaleX = 1.3f
+            scaleY = 1.3f
             isChecked = alarm.enabled
-            scaleX = 1.2f
-            scaleY = 1.2f
             setOnCheckedChangeListener { _, on -> save(alarm.copy(enabled = on)) }
         })
-        addView(top)
-        addView(label(Days.describe(alarm.days), 14f, Palette.MUTED))
+    }
 
-        val days = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-        for (day in DayOfWeek.entries) {
-            val on = alarm.repeatsOn(day)
-            val chip = label(day.getDisplayName(TextStyle.NARROW, Locale.getDefault()), 14f,
-                if (on) Palette.BG else Palette.MUTED, bold = true).apply {
-                gravity = Gravity.CENTER
-                background = rounded(if (on) Palette.ACCENT else Palette.SURFACE_HIGH, 20)
-                setPadding(0, dp(8), 0, dp(8))
-                setOnClickListener { save(alarm.copy(days = alarm.days xor day.bit, enabled = true)) }
-            }
-            days.addView(chip, lp(width = 0, weight = 1f).apply { marginStart = dp(3); marginEnd = dp(3) })
+    private fun editDialog(original: Alarm) {
+        var alarm = original
+        val view = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(20), dp(24), dp(4))
         }
-        addView(days, lp(top = 12))
+        val time = display(formatTime(alarm.hour, alarm.minute), 40f)
+        val chips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
 
-        addView(label("Delete", 14f, Palette.MUTED).apply {
-            gravity = Gravity.END
-            setPadding(0, dp(12), 0, 0)
+        fun drawChips() {
+            chips.removeAllViews()
+            for (day in DayOfWeek.entries) {
+                val on = alarm.repeatsOn(day)
+                val chip = label(day.getDisplayName(TextStyle.NARROW, Locale.getDefault()), 14f,
+                    if (on) Palette.BG else Palette.MUTED).apply {
+                    typeface = Type.MEDIUM
+                    gravity = Gravity.CENTER
+                    background = rounded(if (on) Palette.ACCENT else Palette.SURFACE_HIGH, 6)
+                    setPadding(0, dp(9), 0, dp(9))
+                    setOnClickListener {
+                        alarm = alarm.copy(days = alarm.days xor day.bit, enabled = true)
+                        save(alarm, announce = false)
+                        drawChips()
+                    }
+                }
+                chips.addView(chip, lp(width = 0, weight = 1f).apply { marginStart = dp(3); marginEnd = dp(3) })
+            }
+        }
+
+        time.setOnClickListener {
+            pickTime(alarm.hour, alarm.minute) { h, m ->
+                alarm = alarm.copy(hour = h, minute = m, enabled = true)
+                time.text = formatTime(h, m)
+                save(alarm)
+            }
+        }
+        view.addView(time)
+        view.addView(label("Repeat", 14f, Palette.MUTED), lp(top = 18, bottom = 8))
+        drawChips()
+        view.addView(chips)
+
+        AlertDialog.Builder(this)
+            .setView(view)
+            .setPositiveButton("Done", null)
+            .setNeutralButton("Delete") { _, _ -> delete(alarm) }
+            .show()
+    }
+
+    private fun delete(alarm: Alarm) {
+        Scheduler.cancel(this, alarm.id)
+        store.delete(alarm.id)
+        lastDeleted = alarm
+        handler.removeCallbacks(clearUndo)
+        handler.postDelayed(clearUndo, 5_000L)
+        render()
+    }
+
+    private fun undoBar(alarm: Alarm): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        background = rounded(Palette.SURFACE, 10)
+        setPadding(dp(16), dp(10), dp(12), dp(10))
+        addView(label("Alarm deleted", 14f), lp(width = 0, weight = 1f))
+        addView(label("Undo", 14f, Palette.ACCENT).apply {
+            typeface = Type.MEDIUM
+            setPadding(dp(8), dp(4), dp(4), dp(4))
             setOnClickListener {
-                Scheduler.cancel(context, alarm.id)
-                store.delete(alarm.id)
-                render()
+                handler.removeCallbacks(clearUndo)
+                lastDeleted = null
+                save(alarm)
             }
         })
     }
 
-    private fun settingsCard(): View = card().apply {
-        val volumeLabel = label("", 15f)
-        fun showVolume(p: Int) {
-            volumeLabel.text = "Loudness: $p%"
-        }
-        showVolume(store.volumePercent)
-        addView(volumeLabel)
-        addView(label("Share of your phone's max alarm volume. Locked in while it rings.", 13f, Palette.MUTED))
-        addView(SeekBar(context).apply {
-            min = 10
-            max = 100
-            progress = store.volumePercent
-            onChange { store.volumePercent = it; showVolume(it) }
-        }, lp(top = 8, bottom = 20))
-
-        val snoozeLabel = label("", 15f)
-        fun showSnooze(m: Int) {
-            snoozeLabel.text = "Snooze length: $m min"
-        }
-        showSnooze(store.snoozeMinutes)
-        addView(snoozeLabel)
-        addView(SeekBar(context).apply {
-            min = 1
-            max = 30
-            progress = store.snoozeMinutes
-            onChange { store.snoozeMinutes = it; showSnooze(it) }
-        }, lp(top = 8))
+    private fun settingRow(title: String, value: String, onClick: () -> Unit): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(0, dp(18), 0, dp(18))
+        isClickable = true
+        setOnClickListener { onClick() }
+        addView(label(title, 18f), lp(width = 0, weight = 1f))
+        addView(label("$value  ›", 18f, Palette.MUTED))
     }
 
-    private fun issueRow(text: String, fix: () -> Unit): View = card().apply {
-        background = rounded(Palette.SURFACE, 18, strokeColor = Palette.WARN)
-        addView(label(text, 14f))
-        addView(button("Fix", filled = false, onClick = fix), lp(top = 10))
+    private fun loudnessDialog() = sliderDialog("Loudness", 10, 100, store.volumePercent, { "$it%" }) {
+        store.volumePercent = it
+    }
+
+    private fun snoozeDialog() = sliderDialog("Snooze", 1, 30, store.snoozeMinutes, { "$it min" }) {
+        store.snoozeMinutes = it
+    }
+
+    private fun sliderDialog(title: String, min: Int, max: Int, value: Int, format: (Int) -> String, onSet: (Int) -> Unit) {
+        val view = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(20), dp(24), dp(4))
+        }
+        val readout: TextView = display(format(value), 40f)
+        view.addView(label(title, 14f, Palette.MUTED))
+        view.addView(readout, lp(top = 4))
+        view.addView(SeekBar(this).apply {
+            this.min = min
+            this.max = max
+            progress = value
+            onChange {
+                onSet(it)
+                readout.text = format(it)
+            }
+        }, lp(top = 16))
+        AlertDialog.Builder(this)
+            .setView(view)
+            .setPositiveButton("Done", null)
+            .setOnDismissListener { render() }
+            .show()
+    }
+
+    private fun issueRow(text: String, fix: () -> Unit): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        background = rounded(Palette.BG, 10, strokeColor = Palette.ACCENT).apply { setStroke(dp(1), Palette.ACCENT) }
+        setPadding(dp(16), dp(14), dp(10), dp(14))
+        addView(label(text, 15f), lp(width = 0, weight = 1f))
+        addView(label("Fix", 16f, Palette.ACCENT).apply {
+            typeface = Type.MEDIUM
+            setPadding(dp(12), dp(6), dp(6), dp(6))
+            setOnClickListener { fix() }
+        })
     }
 
     private fun setupIssues(): List<Pair<String, () -> Unit>> = buildList {
@@ -196,7 +312,7 @@ class MainActivity : Activity() {
             })
         }
         if (dndBlocksAlarms()) {
-            add("Do Not Disturb is blocking alarms right now. Allow alarms in Do Not Disturb settings." to {
+            add("Do Not Disturb is blocking alarms right now." to {
                 runCatching { startActivity(Intent(Settings.ACTION_ZEN_MODE_PRIORITY_SETTINGS)) }
                     .onFailure { startActivity(Intent(Settings.ACTION_SETTINGS)) }
             })
@@ -221,11 +337,11 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun save(alarm: Alarm) {
+    private fun save(alarm: Alarm, announce: Boolean = true) {
         store.upsert(alarm)
         if (!Scheduler.sync(this, alarm)) {
             toast("Android blocked the alarm. Allow exact alarms first.")
-        } else if (alarm.enabled) {
+        } else if (alarm.enabled && announce) {
             val now = ZonedDateTime.now()
             toast("Rings in ${untilText(alarm.nextTrigger(now).toInstant().toEpochMilli() - now.toInstant().toEpochMilli())}")
         }

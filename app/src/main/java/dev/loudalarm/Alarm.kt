@@ -1,4 +1,4 @@
-package dev.loudalarm
+﻿package dev.loudalarm
 
 import org.json.JSONObject
 import java.time.DayOfWeek
@@ -62,8 +62,8 @@ object Days {
     fun describe(days: Int, locale: Locale = Locale.getDefault()): String = when (days) {
         0 -> "Once"
         EVERY_DAY -> "Every day"
-        WEEKDAYS -> "Weekdays"
-        WEEKENDS -> "Weekends"
+        WEEKDAYS -> "Mon–Fri"
+        WEEKENDS -> "Sat, Sun"
         else -> DayOfWeek.entries
             .filter { (days and it.bit) != 0 }
             .joinToString(", ") { it.getDisplayName(TextStyle.SHORT, locale) }

@@ -2,16 +2,20 @@ package dev.loudalarm
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.graphics.drawable.ClipDrawable
-import android.graphics.drawable.LayerDrawable
-import android.view.MotionEvent
 import android.content.Intent
+import android.graphics.drawable.ClipDrawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
@@ -34,11 +38,13 @@ class RingActivity : Activity() {
 
     private lateinit var clockView: TextView
     private lateinit var statusView: TextView
+    private lateinit var segments: List<View>
     private lateinit var problemView: TextView
-    private lateinit var entryView: TextView
     private lateinit var keypad: LinearLayout
     private lateinit var actions: LinearLayout
     private lateinit var emergency: TextView
+
+    private val isTest: Boolean get() = store.ringingAlarmId == Scheduler.TEST_ALARM_ID
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -128,25 +134,30 @@ class RingActivity : Activity() {
     private fun buildLayout(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
+            gravity = Gravity.START
             setBackgroundColor(Palette.BG)
-            setPadding(dp(20), dp(28), dp(20), dp(20))
+            setPadding(dp(24), dp(28), dp(24), dp(16))
             padForSystemBars()
         }
 
-        clockView = label("", 64f, bold = true).apply { gravity = Gravity.CENTER }
-        statusView = label("", 16f, Palette.MUTED).apply { gravity = Gravity.CENTER }
-        problemView = label("", 46f, bold = true).apply { gravity = Gravity.CENTER }
-        entryView = label("", 46f, Palette.ACCENT, bold = true).apply {
-            gravity = Gravity.CENTER
-            minHeight = dp(64)
-        }
+        clockView = display("", 88f)
+        statusView = label("", 17f, Palette.MUTED).apply { typeface = Type.BODY }
         root.addView(clockView, lp())
-        root.addView(statusView, lp(top = 4))
+        root.addView(statusView, lp(top = 6))
         root.addView(View(this), lp(height = 0, weight = 1f))
+
+        problemView = display("", 52f).apply { maxLines = 1 }
         root.addView(problemView, lp())
-        root.addView(entryView, lp(top = 4))
-        root.addView(View(this), lp(height = 0, weight = 1f))
+
+        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        segments = List(Problem.REQUIRED) { i ->
+            View(this).also {
+                bar.addView(it, lp(width = 0, height = dp(4), weight = 1f).apply {
+                    if (i > 0) marginStart = dp(6)
+                })
+            }
+        }
+        root.addView(bar, lp(top = 10, bottom = 18))
 
         keypad = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         listOf(
@@ -154,29 +165,60 @@ class RingActivity : Activity() {
             listOf("4", "5", "6"),
             listOf("7", "8", "9"),
             listOf(DELETE, "0", SUBMIT),
-        ).forEach { row ->
-            val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            row.forEach { key ->
-                val view = button(key, filled = key == SUBMIT) { press(key) }.apply { textSize = 26f }
-                line.addView(view, lp(width = 0, height = dp(68), weight = 1f).apply {
-                    marginStart = dp(5)
-                    marginEnd = dp(5)
+        ).forEachIndexed { r, row ->
+            // Baseline alignment would push the small-text keys below the digits and clip them.
+            val keys = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                isBaselineAligned = false
+            }
+            row.forEachIndexed { i, key ->
+                keys.addView(key(key), lp(width = 0, height = dp(68), weight = 1f).apply {
+                    if (i > 0) marginStart = dp(8)
                 })
             }
-            keypad.addView(line, lp(bottom = 10))
+            keypad.addView(keys, lp(top = if (r > 0) 8 else 0))
         }
         root.addView(keypad, lp())
         emergency = emergencyButton()
-        root.addView(emergency, lp(top = 4, height = dp(48)))
+        root.addView(emergency, lp(top = 12, height = dp(52)))
 
         actions = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        actions.addView(button("Snooze ${store.snoozeMinutes} min", filled = false) { snooze() }, lp(bottom = 12, height = dp(64)))
         actions.addView(button("Turn off") { dismiss() }, lp(height = dp(64)))
+        actions.addView(button("Snooze ${store.snoozeMinutes} min", filled = false) { snooze() }, lp(top = 10, height = dp(64)))
         root.addView(actions, lp())
         return root
     }
 
+    private fun key(key: String): TextView = label(key, 28f).apply {
+        gravity = Gravity.CENTER
+        isClickable = true
+        when (key) {
+            SUBMIT -> {
+                textSize = 16f
+                typeface = Type.MEDIUM
+                setTextColor(Palette.BG)
+                background = rounded(Palette.ACCENT, 10)
+            }
+            DELETE -> {
+                typeface = Type.BODY
+                background = keyShape()
+            }
+            else -> {
+                typeface = Type.DISPLAY
+                background = keyShape()
+            }
+        }
+        setOnClickListener { press(key) }
+    }
+
+    private fun keyShape() = GradientDrawable().apply {
+        setColor(Palette.SURFACE)
+        cornerRadius = dp(10).toFloat()
+        setStroke(dp(1), Palette.SURFACE_HIGH)
+    }
+
     private fun press(key: String) {
+        lastWrong = false
         when (key) {
             DELETE -> entry = entry.dropLast(1)
             SUBMIT -> check()
@@ -197,15 +239,18 @@ class RingActivity : Activity() {
 
     private fun render() {
         val done = solved >= Problem.REQUIRED
-        problemView.text = if (done) "You're up." else "$problem ="
-        entryView.text = if (done) "" else entry.ifEmpty { "?" }
-        entryView.setTextColor(if (entry.isEmpty()) Palette.SURFACE_HIGH else Palette.ACCENT)
-        statusView.text = when {
-            done -> "Snooze or turn it off"
-            lastWrong -> "Wrong. $solved of ${Problem.REQUIRED} solved"
-            else -> "$solved of ${Problem.REQUIRED} solved"
+        val wrong = lastWrong && !done
+        statusView.text = if (wrong) "Wrong, try again" else "Solve ${Problem.REQUIRED} to turn it off"
+        statusView.setTextColor(if (wrong) Palette.ACCENT else Palette.MUTED)
+        segments.forEachIndexed { i, view ->
+            view.background = rounded(if (i < solved) Palette.ACCENT else Palette.SURFACE_HIGH, 2)
         }
-        statusView.setTextColor(if (lastWrong && !done) Palette.ACCENT else Palette.MUTED)
+
+        problemView.text = if (done) "You're up." else SpannableStringBuilder("$problem = ").apply {
+            val start = length
+            append(entry.ifEmpty { "_" })
+            setSpan(ForegroundColorSpan(Palette.ACCENT), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
         keypad.visibility = if (done) View.GONE else View.VISIBLE
         emergency.visibility = if (done) View.GONE else View.VISIBLE
         actions.visibility = if (done) View.VISIBLE else View.GONE
@@ -217,26 +262,28 @@ class RingActivity : Activity() {
      */
     @SuppressLint("ClickableViewAccessibility")
     private fun emergencyButton(): TextView {
-        val fill = ClipDrawable(rounded(Palette.ACCENT, 12), Gravity.START, ClipDrawable.HORIZONTAL)
-        val view = label("", 14f, Palette.MUTED).apply {
+        val fill = ClipDrawable(rounded(EMBER_FILL, 10), Gravity.START, ClipDrawable.HORIZONTAL)
+        val seconds = EMERGENCY_HOLD_MS / 1000
+        val view = label("", 15f, Palette.MUTED).apply {
+            typeface = Type.BODY
             gravity = Gravity.CENTER
-            background = LayerDrawable(arrayOf(rounded(Palette.SURFACE, 12), fill))
+            background = LayerDrawable(arrayOf(rounded(Palette.SURFACE, 10), fill))
         }
         var pressedAt = 0L
         fun idle() {
             fill.level = 0
-            view.text = "Emergency stop: hold ${EMERGENCY_HOLD_MS / 1000} s"
+            view.text = "Hold $seconds s to stop without solving"
             view.setTextColor(Palette.MUTED)
         }
         val progress = object : Runnable {
             override fun run() {
                 val held = System.currentTimeMillis() - pressedAt
                 if (held >= EMERGENCY_HOLD_MS) {
-                    dismiss()
+                    emergencyStop()
                     return
                 }
                 fill.level = (held * 10_000 / EMERGENCY_HOLD_MS).toInt()
-                view.text = "Keep holding: ${(EMERGENCY_HOLD_MS - held + 999) / 1000} s"
+                view.text = "Keep holding · ${(EMERGENCY_HOLD_MS - held + 999) / 1000}"
                 view.setTextColor(Palette.TEXT)
                 handler.postDelayed(this, 50)
             }
@@ -263,6 +310,7 @@ class RingActivity : Activity() {
         val minutes = store.snoozeMinutes
         // Schedule first: if Android refuses, the alarm keeps ringing instead of vanishing.
         if (Scheduler.snooze(this, alarmId, minutes * 60_000L)) {
+            if (alarmId != Scheduler.TEST_ALARM_ID) store.snoozedToday = true
             AlarmService.stop(this)
             toast("Snoozed for $minutes min")
             finish()
@@ -272,15 +320,31 @@ class RingActivity : Activity() {
     }
 
     private fun dismiss() {
+        val test = isTest
         AlarmService.stop(this)
+        if (!test) {
+            val line = Lines.streakLine(store.recordWake(clean = true).count)
+            if (line.isNotEmpty()) toast(line)
+        }
+        finish()
+    }
+
+    private fun emergencyStop() {
+        val test = isTest
+        AlarmService.stop(this)
+        if (!test) {
+            store.recordWake(clean = false)
+            toast("Streak reset")
+        }
         finish()
     }
 
     private companion object {
         const val KEY_SOLVED = "solved"
         const val KEY_SINCE = "ring_since"
-        const val DELETE = "Del"
+        const val DELETE = "⌫"
         const val SUBMIT = "OK"
         const val EMERGENCY_HOLD_MS = 5_000L
+        const val EMBER_FILL = 0xFF3A1A10.toInt()
     }
 }

@@ -3,6 +3,7 @@ package dev.loudalarm
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONException
+import java.time.LocalDate
 
 data class Snooze(val alarmId: Int, val at: Long)
 
@@ -64,6 +65,33 @@ class AlarmStore(context: Context) {
             edit.commit()
         }
 
+    var streak: Streak
+        get() {
+            val day = prefs.getLong(KEY_STREAK_DAY, -1L)
+            return Streak(prefs.getInt(KEY_STREAK, 0), if (day < 0) null else LocalDate.ofEpochDay(day))
+        }
+        set(value) {
+            prefs.edit()
+                .putInt(KEY_STREAK, value.count)
+                .putLong(KEY_STREAK_DAY, value.lastDay?.toEpochDay() ?: -1L)
+                .commit()
+        }
+
+    /** Set when this morning's alarm was snoozed, so the final turn-off doesn't count as clean. */
+    var snoozedToday: Boolean
+        get() = prefs.getBoolean(KEY_SNOOZED, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_SNOOZED, value).commit()
+        }
+
+    /** Records how a real (non-test) alarm ended and returns the updated streak. */
+    fun recordWake(clean: Boolean, today: LocalDate = LocalDate.now()): Streak {
+        val next = streak.after(clean && !snoozedToday, today)
+        streak = next
+        snoozedToday = false
+        return next
+    }
+
     /** When the current ring started, or 0 when nothing is ringing. */
     val ringingSince: Long get() = prefs.getLong(KEY_RING_SINCE, 0L)
     val isRinging: Boolean get() = ringingSince != 0L
@@ -99,5 +127,8 @@ class AlarmStore(context: Context) {
         const val KEY_RING_SINCE = "ringing_since"
         const val KEY_RING_ID = "ringing_id"
         const val KEY_SAVED_VOLUME = "saved_volume"
+        const val KEY_STREAK = "streak"
+        const val KEY_STREAK_DAY = "streak_day"
+        const val KEY_SNOOZED = "snoozed_today"
     }
 }
